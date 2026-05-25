@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { getYesterdayISOStart } from '@/lib/utils/date';
-import type { ProjectConfig, WebsiteData } from '@/lib/config/projects.config';
+import type { StoredWebsite } from '@/lib/types/project';
 
 // TODO: If WordPress REST API requires auth, add token via Authorization header here.
 
@@ -19,7 +19,7 @@ export interface WpResult {
 }
 
 async function fetchSingleWp(
-  site: WebsiteData,
+  site: StoredWebsite,
   lastSeenPostId: number
 ): Promise<WpResult> {
   const afterISO = getYesterdayISOStart();
@@ -47,10 +47,10 @@ async function fetchSingleWp(
 }
 
 export async function fetchWordpressForProject(
-  project: ProjectConfig,
+  websites: StoredWebsite[],
   lastSeenPostIdByDomain: Record<string, number>
 ): Promise<WpResult[]> {
-  const targets = project.sources.websites.filter((w) => w.wp_api_url);
+  const targets = websites.filter((w) => w.enabled && w.wp_api_url);
 
   const settled = await Promise.allSettled(
     targets.map((w) =>

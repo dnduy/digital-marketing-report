@@ -3,7 +3,7 @@ export const maxDuration = 60;
 
 import { NextResponse } from 'next/server';
 import { env } from '@/lib/env';
-import { projects } from '@/lib/config/projects.config';
+import { getAllDecryptedProjects } from '@/lib/db/projects';
 import { runHealthCheckForProject } from '@/lib/workflows/health';
 
 export async function GET(req: Request): Promise<Response> {
@@ -11,6 +11,8 @@ export async function GET(req: Request): Promise<Response> {
   if (auth !== `Bearer ${env.CRON_SECRET}`) {
     return new Response('Unauthorized', { status: 401 });
   }
+
+  const projects = (await getAllDecryptedProjects()).filter((p) => p.enabled);
 
   const results = [];
   for (const project of projects) {

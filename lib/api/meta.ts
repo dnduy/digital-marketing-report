@@ -1,7 +1,5 @@
 import axios from 'axios';
-import { env } from '@/lib/env';
 import { getYesterdayUnixStart } from '@/lib/utils/date';
-import type { ProjectConfig, FacebookPage } from '@/lib/config/projects.config';
 
 const GRAPH_API = 'https://graph.facebook.com/v20.0';
 
@@ -24,7 +22,15 @@ export interface MetaPageResult {
   page_name: string;
   posts: MetaPost[];
   new_comments: MetaComment[];
+  all_comments_seen: MetaComment[]; // ALL fetched comments (for state dedup §13.2)
   error?: string;
+}
+
+// Input shape from DecryptedProject
+export interface MetaPageInput {
+  fb_page_id: string;
+  name: string;
+  access_token: string; // plaintext, decrypted before call
 }
 
 async function fetchPagePosts(
@@ -56,27 +62,22 @@ async function fetchPostComments(
       created_time: string;
     }>;
   }>(url, {
-    params: {
-      fields: 'id,from,message,created_time',
-      access_token: token,
-    },
+    params: { fields: 'id,from,message,created_time', access_token: token },
   });
   return (response.data.data ?? []).map((c) => ({ ...c, post_id: postId }));
 }
 
 async function fetchSinglePage(
-  page: FacebookPage,
+  page: MetaPageInput,
   knownCommentIds: string[]
 ): Promise<MetaPageResult> {
-  const token = env.getRequired(page.token_env_key);
   const sinceUnix = getYesterdayUnixStart();
+  const posts = await fetchPagePosts(page.fb_page_id, page.access_token, sinceUnix);
 
-  const posts = await fetchPagePosts(page.id, token, sinceUnix);
-
-  // Fetch comments for each new post; cap at 5 posts to avoid rate limits
+  // Fetch comments for up to 5 recent posts to avoid rate limits
   const recentPosts = posts.slice(0, 5);
   const commentSettled = await Promise.allSettled(
-    recentPosts.map((p) => fetchPostComments(p.id, token))
+    recentPosts.map((p) => fetchPostComments(p.id, page.access_token))
   );
 
   const allComments: MetaComment[] = [];
@@ -84,41 +85,46 @@ async function fetchSinglePage(
     if (s.status === 'fulfilled') {
       allComments.push(...s.value);
     } else {
-      console.error(`[meta] comment fetch failed for post ${recentPosts[i].id}`, s.reason);
+      console.error(
+        `[meta] comment fetch failed for post ${recentPosts[i].id}`,
+        s.reason
+      );
     }
   });
 
   const newComments = allComments.filter((c) => !knownCommentIds.includes(c.id));
 
   return {
-    page_id: page.id,
+    page_id: page.fb_page_id,
     page_name: page.name,
     posts,
     new_comments: newComments,
+    all_comments_seen: allComments, // full set for state update
   };
 }
 
-export async function fetchMetaForProject(
-  project: ProjectConfig,
+export async function fetchMetaForPages(
+  pages: MetaPageInput[],
   knownCommentIdsByPage: Record<string, string[]>
 ): Promise<MetaPageResult[]> {
-  const pages = project.sources.facebook_pages;
-
   const settled = await Promise.allSettled(
     pages.map((page) =>
-      fetchSinglePage(page, knownCommentIdsByPage[page.id] ?? [])
+      fetchSinglePage(page, knownCommentIdsByPage[page.fb_page_id] ?? [])
     )
   );
 
   return settled.map((s, i) => {
     if (s.status === 'fulfilled') return s.value;
-    console.error(`[meta] failed for page ${pages[i].id}`, s.reason);
+    console.error(`[meta] failed for page ${pages[i].fb_page_id}`, s.reason);
     return {
-      page_id: pages[i].id,
+      page_id: pages[i].fb_page_id,
       page_name: pages[i].name,
       posts: [],
       new_comments: [],
+      all_comments_seen: [],
       error: String(s.reason),
     };
   });
 }
+
+

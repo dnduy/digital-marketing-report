@@ -1,6 +1,6 @@
 import { fetchGa4ForProject } from '@/lib/api/ga4';
 import { fetchGscForProject } from '@/lib/api/gsc';
-import { fetchMetaForProject } from '@/lib/api/meta';
+import { fetchMetaForPages } from '@/lib/api/meta';
 import { fetchPlacesForProject } from '@/lib/api/places';
 import { fetchWordpressForProject } from '@/lib/api/wordpress';
 import { getProjectState, setProjectState, buildDefaultState } from '@/lib/db/kv';
@@ -8,8 +8,7 @@ import { appendDailyLog, appendAlert } from '@/lib/db/sheets';
 import { generateGeminiSummary } from '@/lib/ai/gemini';
 import { sendTelegramMessage } from '@/lib/notifications/telegram';
 import { calcDeltaPercent, getTodayDateICT } from '@/lib/utils/date';
-import { env } from '@/lib/env';
-import type { ProjectConfig } from '@/lib/config/projects.config';
+import type { DecryptedProject } from '@/lib/types/project';
 import type { ProjectState, DailyLogRow, DailySummaryInput } from '@/lib/types';
 
 export interface DailyRunResult {
@@ -18,11 +17,15 @@ export interface DailyRunResult {
 }
 
 export async function runDailyForProject(
-  project: ProjectConfig
+  project: DecryptedProject
 ): Promise<DailyRunResult> {
-  const chatId = env.getRequired(project.telegram_chat_id_env_key);
+  const chatId = project.telegram_chat_id;
   const today = getTodayDateICT();
   const errors: string[] = [];
+
+  const websites = project.websites.filter((w) => w.enabled);
+  const fbPages = project.facebook_pages.filter((p) => p.enabled);
+  const places = project.google_maps_places.filter((m) => m.enabled);
 
   // Step 1: Load previous state
   const prevState = (await getProjectState(project.id)) ?? buildDefaultState(project.id);
@@ -30,18 +33,18 @@ export async function runDailyForProject(
   // Step 2: Fetch all sources in parallel (independent APIs)
   const [ga4Results, gscResults, metaResults, placesResults, wpResults] =
     await Promise.all([
-      fetchGa4ForProject(project).catch((err) => {
+      fetchGa4ForProject(websites).catch((err) => {
         console.error(`[daily:${project.id}] ga4 fatal`, err);
         errors.push(`ga4: ${String(err)}`);
         return [];
       }),
-      fetchGscForProject(project).catch((err) => {
+      fetchGscForProject(websites).catch((err) => {
         console.error(`[daily:${project.id}] gsc fatal`, err);
         errors.push(`gsc: ${String(err)}`);
         return [];
       }),
-      fetchMetaForProject(
-        project,
+      fetchMetaForPages(
+        fbPages.map((p) => ({ fb_page_id: p.fb_page_id, name: p.name, access_token: p.access_token })),
         Object.fromEntries(
           Object.entries(prevState.facebook_pages).map(([k, v]) => [k, v.last_comment_ids])
         )
@@ -51,7 +54,7 @@ export async function runDailyForProject(
         return [];
       }),
       fetchPlacesForProject(
-        project,
+        places,
         Object.fromEntries(
           Object.entries(prevState.google_maps_places).map(([k, v]) => [k, v.last_review_ids])
         )
@@ -61,7 +64,7 @@ export async function runDailyForProject(
         return [];
       }),
       fetchWordpressForProject(
-        project,
+        websites,
         Object.fromEntries(
           Object.entries(prevState.websites).map(([k, v]) => [k, v.last_wp_post_id ?? 0])
         )
@@ -83,7 +86,7 @@ export async function runDailyForProject(
   const summaryInput: DailySummaryInput = {
     project_name: project.name,
     date: today,
-    websites: project.sources.websites.map((site) => {
+    websites: websites.map((site) => {
       const ga4 = ga4Results.find((r) => r.domain === site.domain);
       const gsc = gscResults.find((r) => r.domain === site.domain);
       const wp = wpResults.find((r) => r.domain === site.domain);
@@ -139,12 +142,10 @@ export async function runDailyForProject(
   }
 
   // Step 6: Append to Google Sheets
-  const dailyRows: DailyLogRow[] = project.sources.websites.map((site) => {
+  const dailyRows: DailyLogRow[] = websites.map((site) => {
     const ga4 = ga4Results.find((r) => r.domain === site.domain);
     const gsc = gscResults.find((r) => r.domain === site.domain);
     const wp = wpResults.find((r) => r.domain === site.domain);
-    const meta = metaResults;
-    const places = placesResults;
 
     return {
       date: today,
@@ -156,12 +157,14 @@ export async function runDailyForProject(
       impressions: gsc?.impressions ?? 0,
       ctr: gsc?.ctr ?? 0,
       new_wp_posts: wp?.new_posts.length ?? 0,
-      new_fb_posts: meta.reduce((sum, m) => sum + m.posts.length, 0),
-      new_fb_comments: meta.reduce((sum, m) => sum + m.new_comments.length, 0),
-      new_gmb_reviews: places.reduce((sum, p) => sum + p.new_reviews.length, 0),
+      new_fb_posts: metaResults.reduce((sum, m) => sum + m.posts.length, 0),
+      new_fb_comments: metaResults.reduce((sum, m) => sum + m.new_comments.length, 0),
+      new_gmb_reviews: placesResults.reduce((sum, p) => sum + p.new_reviews.length, 0),
       avg_rating:
-        places.length > 0
-          ? Math.round((places.reduce((sum, p) => sum + p.rating, 0) / places.length) * 10) / 10
+        placesResults.length > 0
+          ? Math.round(
+              (placesResults.reduce((sum, p) => sum + p.rating, 0) / placesResults.length) * 10
+            ) / 10
           : 0,
     };
   });
@@ -184,7 +187,7 @@ export async function runDailyForProject(
     project_id: project.id,
     last_run_at: new Date().toISOString(),
     websites: Object.fromEntries(
-      project.sources.websites.map((site) => {
+      websites.map((site) => {
         const ga4 = ga4Results.find((r) => r.domain === site.domain);
         const gsc = gscResults.find((r) => r.domain === site.domain);
         const wp = wpResults.find((r) => r.domain === site.domain);
@@ -202,9 +205,10 @@ export async function runDailyForProject(
     ),
     facebook_pages: Object.fromEntries(
       metaResults.map((r) => {
-        const allCommentIds = r.new_comments.map((c) => c.id);
+        // §13.2 fix: store ALL seen comment IDs (not just new ones)
+        const allIds = r.all_comments_seen.map((c) => c.id);
         const prev = prevState.facebook_pages[r.page_id]?.last_comment_ids ?? [];
-        const combined = Array.from(new Set(prev.concat(allCommentIds))).slice(-50);
+        const combined = Array.from(new Set(prev.concat(allIds))).slice(-50);
         return [
           r.page_id,
           {
@@ -234,5 +238,5 @@ export async function runDailyForProject(
   await setProjectState(project.id, newState);
 
   console.info(`[daily:${project.id}] completed. errors: ${errors.length}`);
-  return { websites_processed: project.sources.websites.length, errors };
+  return { websites_processed: websites.length, errors };
 }

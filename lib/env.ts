@@ -16,6 +16,8 @@ function optionalEnv(key: string): string | undefined {
   return process.env[key] ?? undefined;
 }
 
+let _cachedPrivateKey: string | undefined;
+
 // ── Security ──────────────────────────────────────────────────────────────────
 export const env = {
   // Auth
@@ -27,10 +29,16 @@ export const env = {
   get KV_REST_API_URL() { return requireEnv('KV_REST_API_URL'); },
   get KV_REST_API_TOKEN() { return requireEnv('KV_REST_API_TOKEN'); },
 
+  // Encryption
+  get ENCRYPTION_KEY() { return requireEnv('ENCRYPTION_KEY'); },
+
   // Google Service Account
   get GOOGLE_CLIENT_EMAIL() { return requireEnv('GOOGLE_CLIENT_EMAIL'); },
   get GOOGLE_PRIVATE_KEY() {
-    return requireEnv('GOOGLE_PRIVATE_KEY').replace(/\\n/g, '\n');
+    if (!_cachedPrivateKey) {
+      _cachedPrivateKey = requireEnv('GOOGLE_PRIVATE_KEY').replace(/\\n/g, '\n');
+    }
+    return _cachedPrivateKey;
   },
 
   // Google Maps

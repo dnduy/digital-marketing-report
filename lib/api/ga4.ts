@@ -1,7 +1,7 @@
 import { google } from 'googleapis';
 import { env } from '@/lib/env';
 import { getYesterdayDateICT } from '@/lib/utils/date';
-import type { ProjectConfig } from '@/lib/config/projects.config';
+import type { StoredWebsite } from '@/lib/types/project';
 
 export interface Ga4Result {
   property_id: string;
@@ -45,9 +45,9 @@ async function fetchSingleGa4(
 }
 
 export async function fetchGa4ForProject(
-  project: ProjectConfig
+  websites: StoredWebsite[]
 ): Promise<Ga4Result[]> {
-  const targets = project.sources.websites.filter((w) => w.ga4_property_id);
+  const targets = websites.filter((w) => w.enabled && w.ga4_property_id);
 
   const settled = await Promise.allSettled(
     targets.map((w) => fetchSingleGa4(w.ga4_property_id!, w.domain))

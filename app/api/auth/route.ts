@@ -1,8 +1,23 @@
 import { NextResponse } from 'next/server';
 import { env } from '@/lib/env';
 import { signAuthToken, timingSafeEqual } from '@/lib/utils/auth';
+import { checkAuthRateLimit } from '@/lib/utils/rate-limit';
 
 export async function POST(req: Request): Promise<Response> {
+  // Rate limit by IP
+  const ip =
+    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
+    req.headers.get('x-real-ip') ??
+    'unknown';
+
+  const { allowed, remaining } = await checkAuthRateLimit(ip);
+  if (!allowed) {
+    return new Response('Too Many Requests', {
+      status: 429,
+      headers: { 'Retry-After': '900' },
+    });
+  }
+
   let body: unknown;
   try {
     body = await req.json();
@@ -28,7 +43,7 @@ export async function POST(req: Request): Promise<Response> {
   const token = await signAuthToken({ sub: 'admin' });
   const isProd = process.env.NODE_ENV === 'production';
 
-  const response = NextResponse.json({ ok: true });
+  const response = NextResponse.json({ ok: true, remaining });
   response.cookies.set('auth_token', token, {
     httpOnly: true,
     secure: isProd,

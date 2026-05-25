@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { env } from '@/lib/env';
-import type { ProjectConfig, GoogleMapPlace } from '@/lib/config/projects.config';
+import type { StoredGoogleMapPlace } from '@/lib/types/project';
 
 const PLACES_API_BASE = 'https://places.googleapis.com/v1/places';
 const FIELD_MASK = 'displayName,rating,userRatingCount,reviews';
@@ -47,11 +47,11 @@ function extractReviewId(reviewName: string): string {
 }
 
 async function fetchSinglePlace(
-  place: GoogleMapPlace,
+  place: StoredGoogleMapPlace,
   knownReviewIds: string[]
 ): Promise<PlacesResult> {
   const response = await axios.get<PlaceApiResponse>(
-    `${PLACES_API_BASE}/${place.id}`,
+    `${PLACES_API_BASE}/${place.place_id}`,
     {
       headers: {
         'X-Goog-Api-Key': env.GOOGLE_MAPS_API_KEY,
@@ -75,7 +75,7 @@ async function fetchSinglePlace(
   const newReviews = reviews.filter((r) => !knownReviewIds.includes(r.reviewId));
 
   return {
-    place_id: place.id,
+    place_id: place.place_id,
     place_name: place.name,
     rating,
     total_reviews: totalReviews,
@@ -85,23 +85,23 @@ async function fetchSinglePlace(
 }
 
 export async function fetchPlacesForProject(
-  project: ProjectConfig,
+  places: StoredGoogleMapPlace[],
   knownReviewIdsByPlace: Record<string, string[]>
 ): Promise<PlacesResult[]> {
-  const places = project.sources.google_maps_places;
+  const targets = places.filter((p) => p.enabled);
 
   const settled = await Promise.allSettled(
-    places.map((place) =>
-      fetchSinglePlace(place, knownReviewIdsByPlace[place.id] ?? [])
+    targets.map((place) =>
+      fetchSinglePlace(place, knownReviewIdsByPlace[place.place_id] ?? [])
     )
   );
 
   return settled.map((s, i) => {
     if (s.status === 'fulfilled') return s.value;
-    console.error(`[places] failed for ${places[i].id}`, s.reason);
+    console.error(`[places] failed for ${targets[i].place_id}`, s.reason);
     return {
-      place_id: places[i].id,
-      place_name: places[i].name,
+      place_id: targets[i].place_id,
+      place_name: targets[i].name,
       rating: 0,
       total_reviews: 0,
       reviews: [],

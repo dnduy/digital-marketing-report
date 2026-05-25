@@ -1,3 +1,7 @@
+// V1 legacy interfaces — kept for reference only.
+// In V2, projects are stored in Vercel KV via lib/db/projects.ts.
+// Use the migration script: pnpm tsx scripts/migrate-v1-to-v2.ts
+
 export interface FacebookPage {
   id: string;
   name: string;
@@ -33,45 +37,3 @@ export interface ProjectConfig {
     ads_accounts?: AdsAccount;
   };
 }
-
-export const projects: ProjectConfig[] = [
-  {
-    id: 'chillax',
-    name: 'Hệ thống Chillax & Hoi An Chic',
-    telegram_chat_id_env_key: 'TELEGRAM_CHAT_ID_CHILLAX',
-    google_sheet_id: 'YOUR_SHEET_ID_HERE',
-    sources: {
-      websites: [
-        {
-          domain: 'chillax.com.vn',
-          wp_api_url: 'https://chillax.com.vn/wp-json/wp/v2/posts',
-          ga4_property_id: '123456789',
-          gsc_url: 'https://chillax.com.vn/',
-        },
-        {
-          domain: 'hoianchic.com',
-          wp_api_url: 'https://hoianchic.com/wp-json/wp/v2/posts',
-          ga4_property_id: '987654321',
-          gsc_url: 'https://hoianchic.com/',
-        },
-      ],
-      facebook_pages: [
-        {
-          id: '100000000000001',
-          name: 'Chillax Eatery',
-          token_env_key: 'META_TOKEN_CHIC',
-        },
-        {
-          id: '100000000000002',
-          name: 'Hoi An Chic Hotel',
-          token_env_key: 'META_TOKEN_HOIAN',
-        },
-      ],
-      google_maps_places: [
-        { id: 'ChIJxxxxxxxxxxxxxxxx', name: 'Chillax Eatery Hoi An' },
-        { id: 'ChIJyyyyyyyyyyyyyyyy', name: 'Hoi An Chic Hotel' },
-      ],
-    },
-  },
-  // Thêm project khác ở đây
-];

@@ -1,7 +1,6 @@
 import { appendAlert } from '@/lib/db/sheets';
 import { sendTelegramAlert } from '@/lib/notifications/telegram';
-import { env } from '@/lib/env';
-import type { ProjectConfig } from '@/lib/config/projects.config';
+import type { DecryptedProject } from '@/lib/types/project';
 
 export interface HealthCheckResult {
   domain: string;
@@ -30,12 +29,12 @@ async function checkSingleDomain(domain: string): Promise<HealthCheckResult> {
 }
 
 export async function runHealthCheckForProject(
-  project: ProjectConfig
+  project: DecryptedProject
 ): Promise<HealthCheckResult[]> {
   const results: HealthCheckResult[] = [];
-  const chatId = env.getRequired(project.telegram_chat_id_env_key);
+  const chatId = project.telegram_chat_id;
 
-  for (const site of project.sources.websites) {
+  for (const site of project.websites.filter((w) => w.enabled)) {
     const result = await checkSingleDomain(site.domain);
     results.push(result);
 
@@ -71,4 +70,11 @@ export async function runHealthCheckForProject(
   }
 
   return results;
+}
+
+export interface HealthCheckResult {
+  domain: string;
+  status: 'ok' | 'down';
+  statusCode?: number;
+  error?: string;
 }

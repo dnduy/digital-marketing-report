@@ -1,7 +1,7 @@
 import { google } from 'googleapis';
 import { env } from '@/lib/env';
 import { getTwoDaysAgoDateICT } from '@/lib/utils/date';
-import type { ProjectConfig } from '@/lib/config/projects.config';
+import type { StoredWebsite } from '@/lib/types/project';
 
 export interface GscResult {
   domain: string;
@@ -52,9 +52,9 @@ async function fetchSingleGsc(
 }
 
 export async function fetchGscForProject(
-  project: ProjectConfig
+  websites: StoredWebsite[]
 ): Promise<GscResult[]> {
-  const targets = project.sources.websites.filter((w) => w.gsc_url);
+  const targets = websites.filter((w) => w.enabled && w.gsc_url);
 
   const settled = await Promise.allSettled(
     targets.map((w) => fetchSingleGsc(w.gsc_url!, w.domain))
